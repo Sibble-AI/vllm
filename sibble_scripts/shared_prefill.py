@@ -1,6 +1,7 @@
 from vllm import LLM, SamplingParams
 import time
 from typing import List
+from util import estimate_shared_prefix_tokens, shared_prefix
 
 
 def generate_outputs(llm, prompts: List[str], sampling_params):
@@ -14,12 +15,13 @@ def main():
     llm_config = {
         "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         "tensor_parallel_size": 1,
-        "max_model_len": 128,
+        "max_model_len": 1024,
         "max_num_seqs": 2,
-        "max_num_batched_tokens": 256,
+        "max_num_batched_tokens": 2048,
         "use_v2_block_manager": True,
         "gpu_memory_utilization": 0.7,
         "enforce_eager": True,
+        "enable_chunked_prefill": False,
     }
 
     sampling_params = SamplingParams(
@@ -27,15 +29,6 @@ def main():
         max_tokens=8,
         stop=["</s>", "[/INST]"],
     )
-
-    # Create prompts with very long shared prefix and short variations
-    shared_prefix = """
-    You are a technical expert tasked with providing a brief analysis. Please consider the following aspects in your response:
-    1. Current state of technology and recent breakthroughs
-    2. Practical applications in industry and research
-    3. Technical challenges and limitations
-    
-    Based on these considerations, provide a concise technical summary about"""
 
     topics = [
         "quantum computing",
@@ -52,9 +45,13 @@ def main():
 
     prompts = [f"{shared_prefix} {topic}." for topic in topics]
 
+    # Estimate tokens in shared prefix
+    token_count = estimate_shared_prefix_tokens(llm_config["model"], shared_prefix)
+    print(f"\nEstimated tokens in shared prefix: {token_count}")
+
     # Test shared prefix approach
     print("\nInitializing model with prefix sharing...")
-    llm = LLM(**llm_config)
+    llm = LLM(**llm_config, enable_prefix_caching=True)
 
     # Warmup run
     print("Performing warmup run...")
